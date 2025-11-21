@@ -1,1 +1,1 @@
-streamlit, plotly
+streamlit pandas plotly
