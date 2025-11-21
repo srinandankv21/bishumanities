@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import matplotlib.pyplot as plt
+import numpy as np
 
 # Page configuration
 st.set_page_config(page_title="School Results Dashboard", layout="wide", initial_sidebar_state="expanded")
@@ -61,35 +60,85 @@ def process_data(df):
     df = df.sort_values('Grade')
     return df
 
-def create_distribution_chart(df, title, chart_type='bar'):
-    """Create grade distribution chart"""
+def create_bar_chart(df, title):
+    """Create grade distribution bar chart"""
     grade_dist = df.groupby('Grade')['Count'].sum().reindex(GRADE_ORDER, fill_value=0)
     
-    if chart_type == 'bar':
-        fig = go.Figure(data=[
-            go.Bar(x=grade_dist.index, y=grade_dist.values,
-                   marker_color=[GRADE_COLORS[g] for g in grade_dist.index],
-                   text=grade_dist.values, textposition='auto')
-        ])
-    else:  # pie chart
-        fig = go.Figure(data=[
-            go.Pie(labels=grade_dist.index, values=grade_dist.values,
-                   marker_colors=[GRADE_COLORS[g] for g in grade_dist.index],
-                   textinfo='label+percent+value')
-        ])
+    fig, ax = plt.subplots(figsize=(10, 6))
+    colors = [GRADE_COLORS[g] for g in grade_dist.index]
+    bars = ax.bar(grade_dist.index, grade_dist.values, color=colors, edgecolor='black', linewidth=1.5)
     
-    fig.update_layout(
-        title=title,
-        xaxis_title="Grade" if chart_type == 'bar' else None,
-        yaxis_title="Number of Students" if chart_type == 'bar' else None,
-        height=400,
-        showlegend=True if chart_type == 'pie' else False
-    )
+    # Add value labels on bars
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height,
+                f'{int(height)}',
+                ha='center', va='bottom', fontweight='bold', fontsize=10)
+    
+    ax.set_xlabel('Grade', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Number of Students', fontsize=12, fontweight='bold')
+    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    plt.tight_layout()
+    return fig
+
+def create_pie_chart(df, title):
+    """Create grade distribution pie chart"""
+    grade_dist = df.groupby('Grade')['Count'].sum().reindex(GRADE_ORDER, fill_value=0)
+    grade_dist = grade_dist[grade_dist > 0]  # Remove zero values for cleaner pie
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    colors = [GRADE_COLORS[g] for g in grade_dist.index]
+    
+    wedges, texts, autotexts = ax.pie(grade_dist.values, labels=grade_dist.index, 
+                                        colors=colors, autopct='%1.1f%%',
+                                        startangle=90, textprops={'fontsize': 11, 'fontweight': 'bold'})
+    
+    # Add count to labels
+    for i, (text, autotext) in enumerate(zip(texts, autotexts)):
+        text.set_text(f'{grade_dist.index[i]} ({int(grade_dist.values[i])})')
+    
+    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
+    plt.tight_layout()
+    return fig
+
+def create_comparison_chart(df, divisions):
+    """Create grouped bar chart for division comparison"""
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    x = np.arange(len(GRADE_ORDER))
+    width = 0.35
+    
+    for i, division in enumerate(divisions):
+        division_data = df[df['Division'] == division]
+        grade_dist = division_data.groupby('Grade')['Count'].sum().reindex(GRADE_ORDER, fill_value=0)
+        offset = width * i - width/2
+        bars = ax.bar(x + offset, grade_dist.values, width, label=division, alpha=0.8)
+        
+        # Add value labels
+        for bar in bars:
+            height = bar.get_height()
+            if height > 0:
+                ax.text(bar.get_x() + bar.get_width()/2., height,
+                       f'{int(height)}', ha='center', va='bottom', fontsize=9)
+    
+    ax.set_xlabel('Grade', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Number of Students', fontsize=12, fontweight='bold')
+    ax.set_title('Primary vs Secondary Grade Distribution', fontsize=14, fontweight='bold', pad=20)
+    ax.set_xticks(x)
+    ax.set_xticklabels(GRADE_ORDER)
+    ax.legend(fontsize=11)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    plt.tight_layout()
     return fig
 
 def create_stacked_comparison(df, classes):
     """Create stacked bar chart comparing multiple classes"""
-    fig = go.Figure()
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    x = np.arange(len(classes))
+    width = 0.6
+    bottom = np.zeros(len(classes))
     
     for grade in GRADE_ORDER:
         values = []
@@ -97,23 +146,27 @@ def create_stacked_comparison(df, classes):
             class_data = df[(df['Class'] == class_name) & (df['Grade'] == grade)]
             values.append(class_data['Count'].sum() if not class_data.empty else 0)
         
-        fig.add_trace(go.Bar(
-            name=grade,
-            x=classes,
-            y=values,
-            marker_color=GRADE_COLORS[grade],
-            text=values,
-            textposition='auto'
-        ))
+        bars = ax.bar(x, values, width, label=grade, bottom=bottom, 
+                     color=GRADE_COLORS[grade], edgecolor='white', linewidth=1)
+        
+        # Add value labels for non-zero values
+        for i, (bar, val) in enumerate(zip(bars, values)):
+            if val > 0:
+                height = bottom[i] + val/2
+                ax.text(bar.get_x() + bar.get_width()/2., height,
+                       f'{int(val)}', ha='center', va='center', 
+                       fontsize=9, fontweight='bold', color='white')
+        
+        bottom += values
     
-    fig.update_layout(
-        barmode='stack',
-        title='Grade Distribution Comparison Across Classes',
-        xaxis_title='Class',
-        yaxis_title='Number of Students',
-        height=500,
-        legend_title='Grade'
-    )
+    ax.set_xlabel('Class', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Number of Students', fontsize=12, fontweight='bold')
+    ax.set_title('Grade Distribution Comparison Across Classes', fontsize=14, fontweight='bold', pad=20)
+    ax.set_xticks(x)
+    ax.set_xticklabels(classes, rotation=45, ha='right')
+    ax.legend(title='Grade', bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    plt.tight_layout()
     return fig
 
 # Main App
@@ -163,37 +216,18 @@ if view_option == "Overview":
     
     with col1:
         primary_data = df[df['Division'] == 'Primary']
-        fig1 = create_distribution_chart(primary_data, "Primary School Grade Distribution", 'bar')
-        st.plotly_chart(fig1, use_container_width=True)
+        fig1 = create_bar_chart(primary_data, "Primary School Grade Distribution")
+        st.pyplot(fig1)
     
     with col2:
         secondary_data = df[df['Division'] == 'Secondary']
-        fig2 = create_distribution_chart(secondary_data, "Secondary School Grade Distribution", 'bar')
-        st.plotly_chart(fig2, use_container_width=True)
+        fig2 = create_bar_chart(secondary_data, "Secondary School Grade Distribution")
+        st.pyplot(fig2)
     
     # Combined comparison
     st.markdown('<div class="section-header">🔄 Primary vs Secondary Comparison</div>', unsafe_allow_html=True)
-    
-    fig_combined = go.Figure()
-    for division in ['Primary', 'Secondary']:
-        division_data = df[df['Division'] == division]
-        grade_dist = division_data.groupby('Grade')['Count'].sum().reindex(GRADE_ORDER, fill_value=0)
-        fig_combined.add_trace(go.Bar(
-            name=division,
-            x=grade_dist.index,
-            y=grade_dist.values,
-            text=grade_dist.values,
-            textposition='auto'
-        ))
-    
-    fig_combined.update_layout(
-        barmode='group',
-        title='Primary vs Secondary Grade Distribution',
-        xaxis_title='Grade',
-        yaxis_title='Number of Students',
-        height=500
-    )
-    st.plotly_chart(fig_combined, use_container_width=True)
+    fig_combined = create_comparison_chart(df, ['Primary', 'Secondary'])
+    st.pyplot(fig_combined)
 
 # Primary School Section
 elif view_option == "Primary School":
@@ -216,7 +250,6 @@ elif view_option == "Primary School":
     
     # Chart type selector
     chart_type = st.radio("Select Chart Type:", ['Bar Chart', 'Pie Chart'], horizontal=True)
-    chart_type_value = 'bar' if chart_type == 'Bar Chart' else 'pie'
     
     # Individual class charts
     st.subheader("Individual Class Performance")
@@ -228,14 +261,17 @@ elif view_option == "Primary School":
         for idx, class_name in enumerate(row):
             with cols[idx]:
                 class_data = primary_df[primary_df['Class'] == class_name]
-                fig = create_distribution_chart(class_data, f"{class_name} Grade Distribution", chart_type_value)
-                st.plotly_chart(fig, use_container_width=True)
+                if chart_type == 'Bar Chart':
+                    fig = create_bar_chart(class_data, f"{class_name} Grade Distribution")
+                else:
+                    fig = create_pie_chart(class_data, f"{class_name} Grade Distribution")
+                st.pyplot(fig)
     
     # Stacked comparison
     st.markdown("---")
     st.subheader("📊 Comparative Analysis - All Primary Classes")
     fig_stacked = create_stacked_comparison(primary_df, classes)
-    st.plotly_chart(fig_stacked, use_container_width=True)
+    st.pyplot(fig_stacked)
 
 # Secondary School Section
 elif view_option == "Secondary School":
@@ -258,7 +294,6 @@ elif view_option == "Secondary School":
     
     # Chart type selector
     chart_type = st.radio("Select Chart Type:", ['Bar Chart', 'Pie Chart'], horizontal=True)
-    chart_type_value = 'bar' if chart_type == 'Bar Chart' else 'pie'
     
     # Individual class charts
     st.subheader("Individual Class Performance")
@@ -270,14 +305,17 @@ elif view_option == "Secondary School":
         for idx, class_name in enumerate(row):
             with cols[idx]:
                 class_data = secondary_df[secondary_df['Class'] == class_name]
-                fig = create_distribution_chart(class_data, f"{class_name} Grade Distribution", chart_type_value)
-                st.plotly_chart(fig, use_container_width=True)
+                if chart_type == 'Bar Chart':
+                    fig = create_bar_chart(class_data, f"{class_name} Grade Distribution")
+                else:
+                    fig = create_pie_chart(class_data, f"{class_name} Grade Distribution")
+                st.pyplot(fig)
     
     # Stacked comparison
     st.markdown("---")
     st.subheader("📊 Comparative Analysis - All Secondary Classes")
     fig_stacked = create_stacked_comparison(secondary_df, classes)
-    st.plotly_chart(fig_stacked, use_container_width=True)
+    st.pyplot(fig_stacked)
 
 # Data format information
 with st.sidebar.expander("ℹ️ Data Format Guide"):
